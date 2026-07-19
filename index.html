@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BCMCH Sensor — BLE</title>
+<style>
+:root{
+  --bg:#070b12;
+  --panel:rgba(255,255,255,0.045);
+  --panel-line:rgba(255,255,255,0.08);
+  --cyan:#00d4ff;
+  --cyan-dim:#0a4c66;
+  --amber:#ffb35c;
+  --red:#ff5a5a;
+  --green:#3ee08a;
+  --text:#eaf3f7;
+  --text-dim:#7f92a0;
+  --mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;
+  --sans:'Inter','Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;font-family:var(--sans);background:
+    radial-gradient(ellipse 900px 500px at 50% -10%, #0e2233 0%, transparent 60%),
+    var(--bg);
+  color:var(--text);padding:22px 16px 60px;min-height:100vh;
+}
+.wrap{max-width:680px;margin:0 auto}
+
+/* header */
+.hero{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+.hero h1{font-size:1.05rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600;margin:0;color:var(--text)}
+.hero .sub{font-size:.7rem;color:var(--text-dim);margin-top:3px;letter-spacing:.03em}
+.btn{
+  appearance:none;border:1px solid var(--cyan-dim);background:transparent;color:var(--cyan);
+  padding:10px 18px;font-size:.8rem;font-weight:600;letter-spacing:.04em;border-radius:999px;
+  cursor:pointer;transition:.15s ease;white-space:nowrap;
+}
+.btn:hover{background:rgba(0,212,255,0.1)}
+.btn:active{transform:scale(0.97)}
+.btn.solid{background:var(--cyan);color:#03151d;border-color:var(--cyan)}
+.btn.solid:hover{background:#33dfff}
+.btn.danger{border-color:#5c2020;color:var(--red)}
+.btn.danger:hover{background:rgba(255,90,90,0.1)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.small{padding:7px 13px;font-size:.7rem}
+.btn.tiny{padding:5px 11px;font-size:.65rem}
+
+/* global multi-device control bar */
+.global-bar{
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:18px;
+  padding:12px 14px;border-radius:14px;background:rgba(0,212,255,0.05);
+  border:1px solid var(--cyan-dim);
+}
+.global-bar .lbl{font-size:.68rem;color:var(--text-dim);margin-right:4px;letter-spacing:.03em}
+.empty-hint{
+  text-align:center;color:var(--text-dim);font-size:.8rem;padding:40px 20px;
+  border:1px dashed var(--panel-line);border-radius:16px;line-height:1.6;
+}
+
+.devices{display:flex;flex-direction:column;gap:16px}
+.device-card{
+  border:1px solid var(--panel-line);border-radius:20px;padding:16px 16px 18px;
+  background:rgba(255,255,255,0.018);
+}
+.device-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.device-header .name{font-size:.82rem;font-weight:600;letter-spacing:.02em}
+.device-header .name .id-tag{color:var(--text-dim);font-weight:400;font-size:.68rem;margin-left:6px}
+
+/* connection pulse */
+.pulse{width:9px;height:9px;border-radius:50%;background:#3a4650;flex-shrink:0;position:relative}
+.pulse.live{background:var(--green)}
+.pulse.live::after{
+  content:'';position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--green);
+  animation:ring 1.8s ease-out infinite;
+}
+@keyframes ring{0%{opacity:.8;transform:scale(.6)}100%{opacity:0;transform:scale(1.8)}}
+
+.statusline{display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--text-dim);margin-bottom:12px}
+
+/* panels (within a device card) */
+.panel{
+  background:var(--panel);border:1px solid var(--panel-line);border-radius:16px;
+  padding:16px 16px 18px;margin-bottom:12px;
+}
+.panel:last-child{margin-bottom:0}
+.panel h2{
+  font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dim);
+  margin:0 0 12px;font-weight:600;display:flex;align-items:center;justify-content:space-between;
+}
+
+/* imu grid */
+.grid6{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.cell{background:rgba(0,0,0,0.28);border-radius:10px;padding:11px 8px;text-align:center;border:1px solid transparent}
+.cell.updated{border-color:rgba(0,212,255,0.4)}
+.cell .lbl{font-size:.62rem;color:var(--text-dim);letter-spacing:.06em}
+.cell .val{font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--cyan);margin-top:3px}
+.cell .unit{font-size:.55rem;color:#516170;margin-top:1px}
+
+canvas{width:100%;height:60px;background:rgba(0,0,0,0.32);border-radius:10px;margin-top:12px;display:block}
+
+.temp-row{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:.78rem;color:var(--text-dim)}
+.temp-row b{color:var(--amber);font-family:var(--mono);font-weight:600}
+
+/* status rows */
+.kv{display:grid;grid-template-columns:1fr auto;gap:8px 12px;font-size:.78rem}
+.kv .k{color:var(--text-dim)}
+.kv .v{font-family:var(--mono);text-align:right}
+.v.ok{color:var(--green)}
+.v.warn{color:var(--amber)}
+.v.bad{color:var(--red)}
+
+/* time sync */
+.timebar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.clock{font-family:var(--mono);font-size:1.2rem;color:var(--text)}
+.clock .zone{font-size:.65rem;color:var(--text-dim);font-family:var(--sans);display:block;margin-top:2px}
+
+/* transfer / progress */
+.progress-track{height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;margin-top:10px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--cyan),#33dfff);width:0%;transition:width .12s linear}
+.xfer-meta{display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-dim);margin-top:6px;font-family:var(--mono)}
+
+.rec-row{display:flex;align-items:center;gap:12px}
+.rec-dot{width:8px;height:8px;border-radius:50%;background:#3a4650}
+.rec-dot.on{background:var(--red);box-shadow:0 0 8px rgba(255,90,90,.7);animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.rec-time{font-family:var(--mono);font-size:.85rem;color:var(--text-dim);margin-left:auto}
+
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+.note{font-size:.68rem;color:var(--text-dim);line-height:1.5;margin-top:6px}
+.note a{color:var(--cyan)}
+
+.toast{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);
+  background:#101823;border:1px solid var(--panel-line);color:var(--text);
+  padding:11px 18px;border-radius:12px;font-size:.78rem;opacity:0;pointer-events:none;
+  transition:.25s ease;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:88%;text-align:center;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:#5c2020;color:#ffb0b0}
+
+footer{text-align:center;font-size:.65rem;color:#3f4b56;margin-top:26px;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <div>
+      <h1>BCMCH Sensor Hub</h1>
+      <div class="sub">Multi-device Motion Monitor · Web Bluetooth</div>
+    </div>
+    <button class="btn solid" id="btnAddDevice">+ Add Device</button>
+  </div>
+
+  <div class="global-bar" id="globalBar" style="display:none">
+    <span class="lbl" id="globalCount">0 connected</span>
+    <button class="btn small" id="btnSyncAll">Sync All Times</button>
+    <button class="btn small" id="btnStartAllRec">Start All Recording</button>
+    <button class="btn small" id="btnStopAllRec">Stop All Recording</button>
+  </div>
+
+  <div id="emptyHint" class="empty-hint">
+    No devices connected yet. Tap <b>+ Add Device</b> and pick a board from the list —
+    you can add as many as your computer's Bluetooth radio can hold at once
+    (typically several). Each board keeps its own IMU stream, recording, and
+    CSV download; use <b>Sync All Times</b> after connecting everything so all
+    devices' recordings share a common epoch-ms timeline for later alignment.
+  </div>
+
+  <div class="devices" id="devicesContainer"></div>
+
+  <footer>BCMCH Sensor v5.0.0 (BLE) · QMI8658 200&nbsp;Hz · PCF85063 RTC · Web Bluetooth requires Chrome/Edge on desktop or Android</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<template id="deviceCardTemplate">
+  <div class="device-card">
+    <div class="device-header">
+      <div>
+        <span class="pulse live" data-f="pulse"></span>
+        <span class="name" data-f="name">Device</span>
+      </div>
+      <button class="btn tiny danger" data-f="btnDisconnect">Disconnect</button>
+    </div>
+
+    <!-- Time sync -->
+    <div class="panel">
+      <h2>Device Time</h2>
+      <div class="timebar">
+        <div>
+          <div class="clock" data-f="deviceClock">--:--:--</div>
+          <span class="zone" data-f="clockMeta">not synced this session</span>
+        </div>
+        <button class="btn small" data-f="btnSyncTime">Sync to phone/PC time</button>
+      </div>
+      <div class="note">IMU samples are timestamped off this. All connected devices synced close together share one epoch-ms timeline, so recordings line up later even if analyzed separately.</div>
+    </div>
+
+    <!-- IMU -->
+    <div class="panel">
+      <h2>
+        <span>Live IMU</span>
+        <span data-f="imuRate" style="font-family:var(--mono);text-transform:none;letter-spacing:0;color:var(--text-dim)">-- Hz</span>
+      </h2>
+      <div class="grid6">
+        <div class="cell" data-f="cellAx"><div class="lbl">ACCEL X</div><div class="val" data-f="ax">0.000</div><div class="unit">g</div></div>
+        <div class="cell" data-f="cellAy"><div class="lbl">ACCEL Y</div><div class="val" data-f="ay">0.000</div><div class="unit">g</div></div>
+        <div class="cell" data-f="cellAz"><div class="lbl">ACCEL Z</div><div class="val" data-f="az">0.000</div><div class="unit">g</div></div>
+        <div class="cell" data-f="cellGx"><div class="lbl">GYRO X</div><div class="val" data-f="gx">0.0</div><div class="unit">dps</div></div>
+        <div class="cell" data-f="cellGy"><div class="lbl">GYRO Y</div><div class="val" data-f="gy">0.0</div><div class="unit">dps</div></div>
+        <div class="cell" data-f="cellGz"><div class="lbl">GYRO Z</div><div class="val" data-f="gz">0.0</div><div class="unit">dps</div></div>
+      </div>
+      <canvas data-f="accelChart" width="600" height="60"></canvas>
+      <div class="temp-row"><span>IMU temperature</span><b data-f="temp">-- °C</b></div>
+    </div>
+
+    <!-- Status -->
+    <div class="panel">
+      <h2>
+        <span>Device Status</span>
+        <button class="btn small" data-f="btnRefresh">Refresh</button>
+      </h2>
+      <div class="kv">
+        <div class="k">TF card</div><div class="v" data-f="stTf">--</div>
+        <div class="k">CSV rows buffered</div><div class="v" data-f="stRows">--</div>
+        <div class="k">RTC</div><div class="v" data-f="stRtc">--</div>
+        <div class="k">Battery</div><div class="v" data-f="stBat">--</div>
+      </div>
+    </div>
+
+    <!-- CSV transfer -->
+    <div class="panel">
+      <h2>IMU CSV Log</h2>
+      <div class="rec-row">
+        <span class="rec-dot" data-f="imuRecDot"></span>
+        <span data-f="imuRecLabel">Not recording</span>
+      </div>
+      <div class="actions">
+        <button class="btn" data-f="btnImuRec">Start IMU Recording</button>
+        <button class="btn" data-f="btnDownloadCsv">Download CSV</button>
+        <button class="btn danger" data-f="btnResetCsv">Reset buffer</button>
+      </div>
+      <div class="progress-track"><div class="progress-fill" data-f="xferFill"></div></div>
+      <div class="xfer-meta"><span data-f="xferStatus">idle</span><span data-f="xferBytes"></span></div>
+      <div class="note">"Start IMU Recording" opens a fresh file on the TF card and clears the BLE-downloadable buffer for this device. The live stream above keeps updating either way.</div>
+    </div>
+
+    <!-- Audio recording -->
+    <div class="panel">
+      <h2>Audio Recording</h2>
+      <div class="rec-row">
+        <span class="rec-dot" data-f="recDot"></span>
+        <span data-f="recLabel">Stopped</span>
+        <span class="rec-time" data-f="recTime">0.0 s</span>
+      </div>
+      <div class="actions">
+        <button class="btn" data-f="btnRec">Start Recording</button>
+      </div>
+      <div class="note">Saved as a WAV on this device's TF card (up to 60&nbsp;s, 16&nbsp;kHz mono) -- live network audio monitoring isn't available over BLE, see the firmware's v5.0.0 changelog (B4).</div>
+    </div>
+  </div>
+</template>
+
+<script>
+// =============================================================================
+// GATT UUIDs -- must match the firmware's #defines exactly
+// =============================================================================
+const SERVICE_UUID    = '6f2a0000-9b1e-4c7a-8b2a-9f7e6a2b0000';
+const CHAR_IMU        = '6f2a0001-9b1e-4c7a-8b2a-9f7e6a2b0000'; // notify, JSON
+const CHAR_CMD        = '6f2a0002-9b1e-4c7a-8b2a-9f7e6a2b0000'; // write, text
+const CHAR_STATUS     = '6f2a0003-9b1e-4c7a-8b2a-9f7e6a2b0000'; // read, JSON
+const CHAR_TIME       = '6f2a0004-9b1e-4c7a-8b2a-9f7e6a2b0000'; // write, 8B epoch-ms
+const CHAR_XFER_CTRL  = '6f2a0005-9b1e-4c7a-8b2a-9f7e6a2b0000'; // write, 1B cmd
+const CHAR_XFER_DATA  = '6f2a0006-9b1e-4c7a-8b2a-9f7e6a2b0000'; // notify, bytes
+const CHAR_XFER_INFO  = '6f2a0007-9b1e-4c7a-8b2a-9f7e6a2b0000'; // read, 4B LE total
+
+// Every connected board gets one entry here, keyed by an incrementing
+// session id (not the BLE device id, which some platforms recycle oddly
+// across permission prompts). Each entry owns its own GATT characteristic
+// refs, its own DOM card, and its own runtime state -- nothing here is
+// global-per-page anymore, so N devices run independently.
+const sessions = new Map();
+let sidCounter = 0;
+
+const $=id=>document.getElementById(id);
+function qf(card, field){ return card.querySelector(`[data-f="${field}"]`); }
+
+function toast(msg, isErr=false){
+  const t=$('toast');
+  t.textContent=msg;
+  t.className='toast show'+(isErr?' err':'');
+  clearTimeout(toast._h);
+  toast._h=setTimeout(()=>t.classList.remove('show'),3200);
+}
+
+function updateGlobalBar(){
+  const n = sessions.size;
+  $('globalBar').style.display = n>0 ? 'flex' : 'none';
+  $('emptyHint').style.display = n>0 ? 'none' : 'block';
+  $('globalCount').textContent = `${n} connected`;
+}
+
+// -----------------------------------------------------------------------
+// Add / connect a device
+// -----------------------------------------------------------------------
+$('btnAddDevice').addEventListener('click', addDevice);
+
+async function addDevice(){
+  if(!navigator.bluetooth){
+    toast('Web Bluetooth is not available in this browser (try Chrome or Edge).', true);
+    return;
+  }
+  let device;
+  try{
+    device = await navigator.bluetooth.requestDevice({
+      filters:[{ services:[SERVICE_UUID] }],
+      optionalServices:[SERVICE_UUID]
+    });
+  }catch(err){
+    if(err.name !== 'NotFoundError') toast('Connect failed: '+err.message, true);
+    return;
+  }
+
+  const sid = ++sidCounter;
+  const tpl = $('deviceCardTemplate').content.cloneNode(true);
+  const card = tpl.querySelector('.device-card');
+  $('devicesContainer').appendChild(card);
+
+  const s = {
+    sid, device, server:null, ch:{}, card,
+    sampleCount:0, lastRateCalc:Date.now(),
+    accelHistory:[],
+    isRecOn:false, recStartTime:0, recTimer:null,
+    isImuRecOn:false,
+    xferChunks:[], xferReceived:0, xferTotal:0, xferActive:false,
+  };
+  sessions.set(sid, s);
+  updateGlobalBar();
+
+  qf(card,'name').textContent = device.name || 'BCMCH_Sensor';
+  qf(card,'pulse').classList.remove('live');
+
+  try{
+    device.addEventListener('gattserverdisconnected', ()=>onDeviceDisconnected(sid));
+
+    s.server = await device.gatt.connect();
+    const svc = await s.server.getPrimaryService(SERVICE_UUID);
+
+    s.ch.imu       = await svc.getCharacteristic(CHAR_IMU);
+    s.ch.cmd       = await svc.getCharacteristic(CHAR_CMD);
+    s.ch.status    = await svc.getCharacteristic(CHAR_STATUS);
+    s.ch.time      = await svc.getCharacteristic(CHAR_TIME);
+    s.ch.xferCtrl  = await svc.getCharacteristic(CHAR_XFER_CTRL);
+    s.ch.xferData  = await svc.getCharacteristic(CHAR_XFER_DATA);
+    s.ch.xferInfo  = await svc.getCharacteristic(CHAR_XFER_INFO);
+
+    await s.ch.imu.startNotifications();
+    s.ch.imu.addEventListener('characteristicvaluechanged', e=>onImuNotify(s,e));
+
+    qf(card,'pulse').classList.add('live');
+    wireCardControls(s);
+
+    await syncTime(s);
+    refreshStatus(s);
+    toast(`${device.name || 'Device'} connected and time synced.`);
+  }catch(err){
+    console.error(err);
+    toast('Connect failed: '+err.message, true);
+    card.remove();
+    sessions.delete(sid);
+    updateGlobalBar();
+  }
+}
+
+function onDeviceDisconnected(sid){
+  const s = sessions.get(sid);
+  if(!s) return;
+  qf(s.card,'pulse').classList.remove('live');
+  qf(s.card,'name').textContent += ' (disconnected)';
+  clearInterval(s.recTimer);
+  toast(`${s.device.name || 'Device'} disconnected`);
+  // Leave the card in place (so any in-progress CSV data / state is still
+  // visible) but stop treating it as controllable.
+  sessions.delete(sid);
+  updateGlobalBar();
+}
+
+function wireCardControls(s){
+  const card = s.card;
+
+  qf(card,'btnDisconnect').addEventListener('click', ()=>{
+    if(s.device && s.device.gatt.connected) s.device.gatt.disconnect();
+  });
+
+  qf(card,'btnSyncTime').addEventListener('click', ()=>syncTime(s));
+  qf(card,'btnRefresh').addEventListener('click', ()=>refreshStatus(s));
+
+  qf(card,'btnResetCsv').addEventListener('click', async ()=>{
+    await sendCmd(s,'reset_csv');
+    toast('CSV buffer reset');
+    refreshStatus(s);
+  });
+
+  qf(card,'btnImuRec').addEventListener('click', ()=>toggleImuRec(s));
+  qf(card,'btnDownloadCsv').addEventListener('click', ()=>downloadCsv(s));
+  qf(card,'btnRec').addEventListener('click', ()=>toggleAudioRec(s));
+
+  // Poll this device's STATUS every 4s while it stays in the map.
+  const poll = setInterval(()=>{
+    if(!sessions.has(s.sid)){ clearInterval(poll); return; }
+    refreshStatus(s);
+  }, 4000);
+}
+
+// -----------------------------------------------------------------------
+// IMU live stream (per device)
+// -----------------------------------------------------------------------
+function onImuNotify(s, e){
+  let text;
+  try{ text = new TextDecoder().decode(e.target.value); }catch(_){ return; }
+  let d;
+  try{ d = JSON.parse(text); }catch(_){ return; }
+  if(!('ax' in d)) return;
+
+  const card = s.card;
+  qf(card,'ax').textContent=d.ax.toFixed(3);
+  qf(card,'ay').textContent=d.ay.toFixed(3);
+  qf(card,'az').textContent=d.az.toFixed(3);
+  qf(card,'gx').textContent=d.gx.toFixed(1);
+  qf(card,'gy').textContent=d.gy.toFixed(1);
+  qf(card,'gz').textContent=d.gz.toFixed(1);
+  qf(card,'temp').textContent=d.temp.toFixed(1)+' °C';
+
+  ['cellAx','cellAy','cellAz','cellGx','cellGy','cellGz'].forEach(f=>{
+    const el = qf(card,f);
+    el.classList.add('updated');
+    clearTimeout(el._t);
+    el._t=setTimeout(()=>el.classList.remove('updated'),180);
+  });
+
+  s.accelHistory.push([d.ax,d.ay,d.az]);
+  if(s.accelHistory.length>120) s.accelHistory.shift();
+  drawChart(s);
+
+  s.sampleCount++;
+  const now=Date.now();
+  if(now - s.lastRateCalc >= 1000){
+    qf(card,'imuRate').textContent = s.sampleCount + ' Hz';
+    s.sampleCount=0;
+    s.lastRateCalc=now;
+  }
+
+  if(typeof d.ts === 'number' || typeof d.ts === 'string'){
+    updateClockFromTs(s, d.ts);
+  }
+}
+
+function drawChart(s){
+  const cv=qf(s.card,'accelChart');
+  const cx=cv.getContext('2d');
+  const w=cv.width, h=cv.height;
+  cx.clearRect(0,0,w,h);
+  const colors=['#00d4ff','#ffb35c','#3ee08a'];
+  const hist=s.accelHistory;
+  const n=hist.length;
+  if(n<2) return;
+  const stepX = w/119;
+  for(let axis=0; axis<3; axis++){
+    cx.beginPath();
+    cx.strokeStyle=colors[axis];
+    cx.lineWidth=1.4;
+    for(let i=0;i<n;i++){
+      const v=hist[i][axis];               // roughly -4g..4g
+      const y = h/2 - (v/4)*(h/2-4);
+      const x = i*stepX;
+      if(i===0) cx.moveTo(x,y); else cx.lineTo(x,y);
+    }
+    cx.stroke();
+  }
+}
+
+// -----------------------------------------------------------------------
+// Time sync (B3)
+// -----------------------------------------------------------------------
+async function syncTime(s){
+  if(!s.ch.time) return;
+  try{
+    const epochMs = BigInt(Date.now());
+    const buf = new ArrayBuffer(8);
+    new DataView(buf).setBigUint64(0, epochMs, true); // little-endian
+    await s.ch.time.writeValue(buf);
+    qf(s.card,'clockMeta').textContent='synced just now';
+  }catch(err){
+    toast('Time sync failed: '+err.message, true);
+  }
+}
+
+$('btnSyncAll').addEventListener('click', async ()=>{
+  const list=[...sessions.values()];
+  for(const s of list) await syncTime(s);   // sequential -- keeps writes from
+                                             // queuing/colliding on some OS
+                                             // BLE stacks; still typically
+                                             // completes within tens of ms
+                                             // per device
+  toast(`Time synced on ${list.length} device(s)`);
+});
+
+function updateClockFromTs(s, ts){
+  const n = typeof ts === 'string' ? Number(ts) : ts;
+  if(!isFinite(n)) return;
+  if(n > 1600000000000){ // looks like a real epoch-ms value
+    const timeStr = new Date(n).toLocaleTimeString('en-IN', {
+      timeZone:'Asia/Kolkata', hour12:false
+    });
+    qf(s.card,'deviceClock').textContent = timeStr+' IST';
+  }
+}
+
+// -----------------------------------------------------------------------
+// Status panel (per device)
+// -----------------------------------------------------------------------
+async function refreshStatus(s){
+  if(!s.ch.status) return;
+  try{
+    const val = await s.ch.status.readValue();
+    const text = new TextDecoder().decode(val);
+    const st = JSON.parse(text);
+    const card = s.card;
+
+    if(st.deviceName) qf(card,'name').textContent = st.deviceName;
+
+    if(st.tfFull) qf(card,'stTf').innerHTML='<span class="v warn">FULL</span>';
+    else if(st.tfCard) qf(card,'stTf').innerHTML=`<span class="v ok">${st.tfFile||'OK'}</span>`;
+    else qf(card,'stTf').innerHTML='<span class="v warn">No card</span>';
+
+    qf(card,'stRows').textContent = (st.csvRows ?? '--').toLocaleString?.() ?? st.csvRows;
+
+    if(!st.rtcPresent) qf(card,'stRtc').innerHTML='<span class="v bad">not detected</span>';
+    else if(!st.rtcValid) qf(card,'stRtc').innerHTML='<span class="v warn">INVALID — sync time</span>';
+    else if(st.rtcBatteryLow) qf(card,'stRtc').innerHTML='<span class="v warn">coin cell low</span>';
+    else qf(card,'stRtc').innerHTML=`<span class="v ok">${st.time||'OK'}${st.time?' '+(st.tz||'IST'):''}</span>`;
+
+    if(typeof st.batMv === 'number'){
+      const volts=(st.batMv/1000).toFixed(2)+'V';
+      qf(card,'stBat').innerHTML = st.batLow ? `<span class="v warn">${volts} LOW</span>` : `<span class="v ok">${volts}</span>`;
+    }
+
+    if(st.bleTimeSynced) qf(card,'clockMeta').textContent='synced this session';
+
+    if(typeof st.imuRecording === 'boolean'){
+      s.isImuRecOn = st.imuRecording;
+      qf(card,'imuRecDot').className = s.isImuRecOn ? 'rec-dot on' : 'rec-dot';
+      qf(card,'imuRecLabel').textContent = s.isImuRecOn
+        ? `Recording${st.tfFile ? ' -> '+st.tfFile : ''}`
+        : 'Not recording';
+      qf(card,'btnImuRec').textContent = s.isImuRecOn ? 'Stop IMU Recording' : 'Start IMU Recording';
+    }
+  }catch(err){
+    console.error(err);
+  }
+}
+
+// -----------------------------------------------------------------------
+// Commands: reset_csv / start_rec / stop_rec / start_imu_rec / stop_imu_rec
+// -----------------------------------------------------------------------
+async function sendCmd(s, cmd){
+  if(!s.ch.cmd) return;
+  try{
+    await s.ch.cmd.writeValueWithoutResponse(new TextEncoder().encode(cmd));
+  }catch(err){
+    try{ await s.ch.cmd.writeValue(new TextEncoder().encode(cmd)); }
+    catch(e2){ toast('Command failed: '+e2.message, true); }
+  }
+}
+
+function toggleImuRec(s){
+  const card = s.card;
+  if(s.isImuRecOn){
+    sendCmd(s,'stop_imu_rec');
+    s.isImuRecOn=false;
+    qf(card,'imuRecDot').className = 'rec-dot';
+    qf(card,'imuRecLabel').textContent = 'Not recording';
+    qf(card,'btnImuRec').textContent = 'Start IMU Recording';
+    toast('IMU recording stopped');
+  }else{
+    sendCmd(s,'start_imu_rec');
+    s.isImuRecOn=true;
+    qf(card,'imuRecDot').className = 'rec-dot on';
+    qf(card,'imuRecLabel').textContent = 'Recording…';
+    qf(card,'btnImuRec').textContent = 'Stop IMU Recording';
+    toast('IMU recording started');
+  }
+  setTimeout(()=>refreshStatus(s), 300);
+}
+
+function toggleAudioRec(s){
+  const card = s.card;
+  if(s.isRecOn){
+    sendCmd(s,'stop_rec');
+    s.isRecOn=false;
+    clearInterval(s.recTimer);
+    qf(card,'recDot').className='rec-dot';
+    qf(card,'recLabel').textContent='Stopped';
+    qf(card,'btnRec').textContent='Start Recording';
+  }else{
+    sendCmd(s,'start_rec');
+    s.isRecOn=true;
+    s.recStartTime=Date.now();
+    s.recTimer=setInterval(()=>{
+      qf(card,'recTime').textContent=((Date.now()-s.recStartTime)/1000).toFixed(1)+' s';
+    },100);
+    qf(card,'recDot').className='rec-dot on';
+    qf(card,'recLabel').textContent='Recording';
+    qf(card,'btnRec').textContent='Stop Recording';
+  }
+}
+
+$('btnStartAllRec').addEventListener('click', ()=>{
+  const list=[...sessions.values()];
+  list.forEach(s=>{ if(!s.isImuRecOn) toggleImuRec(s); });
+  toast(`IMU recording started on ${list.length} device(s)`);
+});
+$('btnStopAllRec').addEventListener('click', ()=>{
+  const list=[...sessions.values()];
+  list.forEach(s=>{ if(s.isImuRecOn) toggleImuRec(s); });
+  toast(`IMU recording stopped on ${list.length} device(s)`);
+});
+
+// -----------------------------------------------------------------------
+// CSV transfer (B2) -- chunked over XFER_DATA, paced by the firmware
+// -----------------------------------------------------------------------
+async function downloadCsv(s){
+  if(!s.ch.xferCtrl || s.xferActive) return;
+  const card = s.card;
+  try{
+    s.xferChunks=[]; s.xferReceived=0; s.xferTotal=0; s.xferActive=true;
+    qf(card,'xferStatus').textContent='requesting…';
+    qf(card,'xferFill').style.width='0%';
+
+    const onChunk = e=>onXferChunk(s,e);
+    s._onChunk = onChunk;
+    await s.ch.xferData.startNotifications();
+    s.ch.xferData.addEventListener('characteristicvaluechanged', onChunk);
+
+    await s.ch.xferCtrl.writeValue(new Uint8Array([1]));
+    await new Promise(r=>setTimeout(r,150)); // let XFER_INFO update
+    const infoVal = await s.ch.xferInfo.readValue();
+    s.xferTotal = infoVal.getUint32(0, true);
+
+    if(s.xferTotal === 0){
+      finishXfer(s, true);
+      toast('No CSV data buffered yet');
+      return;
+    }
+    qf(card,'xferStatus').textContent='downloading…';
+  }catch(err){
+    s.xferActive=false;
+    toast('CSV pull failed: '+err.message, true);
+  }
+}
+
+function onXferChunk(s, e){
+  if(!s.xferActive) return;
+  const val = e.target.value;
+  if(val.byteLength > 0){
+    s.xferChunks.push(new Uint8Array(val.buffer.slice(val.byteOffset, val.byteOffset+val.byteLength)));
+    s.xferReceived += val.byteLength;
+  }
+  const pct = s.xferTotal ? Math.min(100, (s.xferReceived/s.xferTotal)*100) : 0;
+  qf(s.card,'xferFill').style.width = pct.toFixed(0)+'%';
+  qf(s.card,'xferBytes').textContent = `${s.xferReceived.toLocaleString()} / ${s.xferTotal.toLocaleString()} B`;
+
+  if(s.xferTotal && s.xferReceived >= s.xferTotal){
+    finishXfer(s, true);
+  }
+}
+
+function finishXfer(s, save){
+  s.xferActive=false;
+  if(s.ch.xferData && s._onChunk) s.ch.xferData.removeEventListener('characteristicvaluechanged', s._onChunk);
+  qf(s.card,'xferStatus').textContent = save ? 'done' : 'idle';
+
+  if(save && s.xferChunks.length){
+    const blob = new Blob(s.xferChunks, {type:'text/csv'});
+    const a=document.createElement('a');
+    const nameTag = (s.device && s.device.name) ? s.device.name.replace(/[^a-z0-9_-]/gi,'_') : ('device'+s.sid);
+    a.href=URL.createObjectURL(blob);
+    a.download=`bcmch_${nameTag}_${new Date().toISOString().replace(/[:.]/g,'-')}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast('CSV downloaded ('+s.xferChunks.length+' chunks)');
+  }
+  s.xferChunks=[];
+}
+</script>
+</body>
+</html>
